@@ -1,0 +1,24 @@
+﻿# Build output
+bin/
+obj/
+
+# Publish folders (keep out of repo)
+publish_*/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+
+# User-specific
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs / local settings
+*.log
+settings.json
+
+# OS junk
+Thumbs.db
+.DS_Store
