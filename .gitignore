@@ -22,3 +22,5 @@ settings.json
 # OS junk
 Thumbs.db
 .DS_Store
+warnings_*.txt
+publish_*.txt
