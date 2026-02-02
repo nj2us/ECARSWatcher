@@ -1,17 +1,5 @@
-// ============================================================================
-// ECARSWatcher
-// Code Version: VER17
-// Baseline: VER16 (last known good running version)
-// Changes in VER17:
-//   1) Title base text: "ECARS Watcher by NJ2US" + version in title bar
-//   2) Remove visible blue row-selection highlight (selection still works)
-//   3) Allow user to hide/show columns via View menu and header right-click,
-//      with persistence to settings.json (Time column always visible) and
-//      a Reset Columns option.
-// ============================================================================
-
 #nullable enable
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -27,35 +15,9 @@ using System.Threading.Tasks;
 using System.Timers;
 using System.Windows.Forms;
 using System.Windows.Automation;
-using System.Reflection;
-using System.Text.Json;
-
-using System.Linq;
 
 internal static class Program
 {
-    // VER17: settings storage root
-    private static readonly string AppDataRoot =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ECARSWatcher");
-
-
-    // =========================
-    // VERSIONING
-    // =========================
-    public const string CodeVersion = "VER17";
-    public static readonly string AppVersion = GetAppVersion();
-
-    private static string GetAppVersion()
-    {
-        var asm = Assembly.GetExecutingAssembly();
-        var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        if (!string.IsNullOrWhiteSpace(info))
-            return info.Split('+')[0]; // trim build metadata if present
-
-        return asm.GetName().Version?.ToString() ?? "0.0.0";
-    }
-
-
     // =========================
     // APP IDENTITY / PATHS
     // =========================
@@ -90,42 +52,6 @@ internal static class Program
 
     private static readonly string LogDir = Path.Combine(BaseDir, "logs");
     private static readonly string LogFile = Path.Combine(LogDir, "ecarswatcher.log");
-    // Settings (persist user UI preferences)
-    private static readonly string SettingsPath =
-        Path.Combine(AppDataRoot, "settings.json");
-
-    private sealed class UserSettings
-    {
-        public List<string>? VisibleColumns { get; set; }
-    }
-
-    private static UserSettings LoadUserSettings()
-    {
-        try
-        {
-            if (File.Exists(SettingsPath))
-            {
-                var json = File.ReadAllText(SettingsPath, Encoding.UTF8);
-                var s = JsonSerializer.Deserialize<UserSettings>(json);
-                return s ?? new UserSettings();
-            }
-        }
-        catch { /* ignore corrupt settings */ }
-        return new UserSettings();
-    }
-
-    private static void SaveUserSettings(UserSettings s)
-    {
-        try
-        {
-            Directory.CreateDirectory(AppDataRoot);
-            var json = JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(SettingsPath, json, Encoding.UTF8);
-        }
-        catch { /* ignore */ }
-    }
-
-
     private static readonly string CsvFile = Path.Combine(BaseDir, "ledger.csv");
     private static readonly string SettingsFile = Path.Combine(BaseDir, "settings.ini");
 
@@ -141,18 +67,15 @@ internal static class Program
     private static string LastLookedUp = "";
 
     private static readonly System.Timers.Timer DebounceTimer = new System.Timers.Timer();
-    private static CancellationTokenSource LookupCts;
+    private static CancellationTokenSource? LookupCts;
 
-    private class CacheEntry { public MemberResult Result; public DateTime WhenUtc; }
+    private sealed class CacheEntry { public MemberResult? Result; public DateTime WhenUtc; }
     private static readonly Dictionary<string, CacheEntry> Cache = new Dictionary<string, CacheEntry>(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HttpClient Http = BuildHttpClient();
 
     // single instance
-    private static Mutex SingleInstanceMutex;
-
-    // used to allow “real exit”
-    private static bool AllowExit = false;
+    private static Mutex? SingleInstanceMutex;
 
     [STAThread]
     public static void Main()
@@ -274,7 +197,6 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     private static void RequestExit()
     {
         // Signal "real exit" so FormClosing handlers can allow shutdown.
-        AllowExit = true;
         try
         {
             if (Form != null && !Form.IsDisposed)
@@ -307,7 +229,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
         Log("Watcher started. Watching AutomationId=" + CallSignAutomationId);
     }
 
-    private static void DebounceTimer_Elapsed(object sender, ElapsedEventArgs e)
+    private static void DebounceTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
         Task.Run(async () => await DebounceFiredAsync());
     }
@@ -316,8 +238,8 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     {
         try
         {
-            AutomationElement element = sender as AutomationElement;
-            if (element == null) return;
+            var element = sender as AutomationElement;
+            if (element is null) return;
 
             if (!string.Equals(element.Current.AutomationId, CallSignAutomationId, StringComparison.Ordinal))
                 return;
@@ -354,10 +276,9 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
         }
 
         // Cache hit?
-        CacheEntry ce;
         lock (Cache)
         {
-            if (Cache.TryGetValue(call, out ce))
+            if (Cache.TryGetValue(call, out var ce))
             {
                 if ((DateTime.UtcNow - ce.WhenUtc) <= CacheTtl)
                 {
@@ -374,7 +295,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
 
         try
         {
-            MemberResult result = await LookupEcarsAsync(call, token);
+            MemberResult? result = await LookupEcarsAsync(call, token);
             if (token.IsCancellationRequested) return;
 
             lock (Cache)
@@ -407,7 +328,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     // =========================
     // LOOKUP + PARSE
     // =========================
-    private static async Task<MemberResult> LookupEcarsAsync(string call, CancellationToken token)
+    private static async Task<MemberResult?> LookupEcarsAsync(string call, CancellationToken token)
     {
         string url = string.Format(CultureInfo.InvariantCulture, LookupUrlTemplate, Uri.EscapeDataString(call));
 
@@ -480,7 +401,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     // =========================
     // APPLY RESULT / AUTOFILL
     // =========================
-    private static void ApplyResult(string call, MemberResult result, bool fromCache)
+    private static void ApplyResult(string call, MemberResult? result, bool fromCache)
     {
         var entry = new CheckInEntry
         {
@@ -787,7 +708,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     private static void TryBringExistingToFront()
     {
         // Best effort: find by window title and activate
-        IntPtr hWnd = Native.FindWindow(null, CheckInForm.FullWindowTitle);
+        IntPtr hWnd = Native.FindWindow(null, CheckInForm.WindowTitle);
         if (hWnd != IntPtr.Zero)
         {
             Native.ShowWindow(hWnd, Native.SW_RESTORE);
@@ -805,27 +726,27 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     // =========================
     private sealed class MemberResult
     {
-        public string CallSign;
-        public string Name;
-        public string MemberNumber;
-        public string Expires;
-        public string City;
-        public string State;
-        public string Email;
+        public string CallSign { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string MemberNumber { get; set; } = "";
+        public string Expires { get; set; } = "";
+        public string City { get; set; } = "";
+        public string State { get; set; } = "";
+        public string Email { get; set; } = "";
     }
 
     private sealed class CheckInEntry
     {
-        public string Timestamp;
-        public string CallSign;
-        public string Name;
-        public string EcarsNo;
-        public string Expires;
-        public string City;
-        public string State;
-        public string Email;
-        public string Status; // MATCH / NO MATCH / ERROR
-        public string Source; // live / cache
+        public string Timestamp { get; set; } = "";
+        public string CallSign { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string EcarsNo { get; set; } = "";
+        public string Expires { get; set; } = "";
+        public string City { get; set; } = "";
+        public string State { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Status { get; set; } = ""; // MATCH / NO MATCH / ERROR
+        public string Source { get; set; } = ""; // live / cache
     }
 
     // =========================
@@ -833,18 +754,10 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
     // =========================
     private sealed class CheckInForm : Form
     {
-        public const string WindowTitle = "ECARS Watcher by NJ2US";
-        public static string FullWindowTitle => $"{WindowTitle} v{Program.AppVersion}";
+        public const string WindowTitle = "ECARS Check-In Ledger by NJ2US";
 
         private readonly DataGridView Grid;
         private readonly Label Status;
-
-        private readonly ToolStripMenuItem _viewColumnsMenu;
-        private readonly ContextMenuStrip _headerColumnsMenu;
-        private readonly Dictionary<string, ToolStripMenuItem> _viewColumnItems = new();
-        private readonly Dictionary<string, ToolStripMenuItem> _headerColumnItems = new();
-        private UserSettings _userSettings = new UserSettings();
-
         private bool _allowClose = false;
 
         private readonly Action _openFolder;
@@ -878,7 +791,7 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
             _fontReset = resetFont;
             _exit = requestExit;
 
-            Text = FullWindowTitle;
+            Text = WindowTitle;
             Width = 1200;
             Height = 580;
             StartPosition = FormStartPosition.CenterScreen;
@@ -919,13 +832,6 @@ private static Font MakeUiFont(float size, FontStyle? styleOverride = null, stri
             var miFont = new ToolStripMenuItem("Font...", null, (s,e)=> ChooseFont());
             miFont.ShortcutKeys = Keys.Control | Keys.Shift | Keys.F;
             view.DropDownItems.Add(miFont);
-
-            view.DropDownItems.Add(new ToolStripSeparator());
-            _viewColumnsMenu = new ToolStripMenuItem("Columns");
-            view.DropDownItems.Add(_viewColumnsMenu);
-
-            _headerColumnsMenu = new ContextMenuStrip();
-
 
             var tools = new ToolStripMenuItem("Tools");
 
@@ -991,13 +897,6 @@ Grid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
 Grid.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
 Grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
 
-// Selection: keep it functional but visually neutral (no Windows-blue highlight)
-Grid.DefaultCellStyle.SelectionBackColor = Grid.DefaultCellStyle.BackColor;
-Grid.DefaultCellStyle.SelectionForeColor = Grid.DefaultCellStyle.ForeColor;
-Grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Grid.ColumnHeadersDefaultCellStyle.BackColor;
-Grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Grid.ColumnHeadersDefaultCellStyle.ForeColor;
-
-
 // Columns (explicit headers)
 Grid.Columns.Add("Timestamp", "Time");
 Grid.Columns.Add("CallSign", "Call");
@@ -1021,158 +920,6 @@ TrySetFillWeight("State", 5);
 TrySetFillWeight("Email", 18);
 TrySetFillWeight("Status", 10);
 TrySetFillWeight("Source", 5);
-
-
-// Load persisted column visibility (settings.json)
-_userSettings = Program.LoadUserSettings();
-
-// Default: if no settings, show all columns
-var visible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-if (_userSettings.VisibleColumns != null)
-{
-    foreach (var c in _userSettings.VisibleColumns)
-        if (!string.IsNullOrWhiteSpace(c))
-            visible.Add(c.Trim());
-}
-// Enforce Time column always visible
-visible.Add("Timestamp");
-
-// Apply visibility to grid
-foreach (DataGridViewColumn c in Grid.Columns)
-{
-    c.Visible = visible.Contains(c.Name);
-}
-
-// Build View->Columns menu and header right-click menu
-void RefreshSettingsFromGridAndSave()
-{
-    var list = new List<string>();
-    foreach (DataGridViewColumn c in Grid.Columns)
-        if (c.Visible)
-            list.Add(c.Name);
-
-    // Enforce again, just in case
-    if (!list.Any(x => string.Equals(x, "Timestamp", StringComparison.OrdinalIgnoreCase)))
-        list.Insert(0, "Timestamp");
-
-    _userSettings.VisibleColumns = list;
-    Program.SaveUserSettings(_userSettings);
-}
-
-void SetColumnVisible(string colName, bool makeVisible, bool save = true)
-{
-    if (string.Equals(colName, "Timestamp", StringComparison.OrdinalIgnoreCase) && !makeVisible)
-    {
-        System.Media.SystemSounds.Beep.Play();
-        return; // Time column stays
-    }
-
-    var col = Grid.Columns[colName];
-    if (col == null) return;
-
-    col.Visible = makeVisible;
-
-    // Prevent hiding everything
-    int visibleCount = 0;
-    foreach (DataGridViewColumn c in Grid.Columns)
-        if (c.Visible) visibleCount++;
-
-    if (visibleCount == 0)
-    {
-        col.Visible = true;
-        System.Media.SystemSounds.Beep.Play();
-        return;
-    }
-
-    // Sync menu checkmarks
-    if (_viewColumnItems.TryGetValue(colName, out var vItem)) vItem.Checked = makeVisible;
-    if (_headerColumnItems.TryGetValue(colName, out var hItem)) hItem.Checked = makeVisible;
-
-    if (save) RefreshSettingsFromGridAndSave();
-}
-
-void ResetColumnsToDefault()
-{
-    foreach (DataGridViewColumn c in Grid.Columns)
-        c.Visible = true;
-
-    // Always visible
-    Grid.Columns["Timestamp"].Visible = true;
-
-    foreach (var kv in _viewColumnItems) kv.Value.Checked = Grid.Columns[kv.Key].Visible;
-    foreach (var kv in _headerColumnItems) kv.Value.Checked = Grid.Columns[kv.Key].Visible;
-
-    RefreshSettingsFromGridAndSave();
-}
-
-void BuildColumnMenus()
-{
-    _viewColumnsMenu.DropDownItems.Clear();
-    _headerColumnsMenu.Items.Clear();
-    _viewColumnItems.Clear();
-    _headerColumnItems.Clear();
-
-    foreach (DataGridViewColumn c in Grid.Columns)
-    {
-        var headerText = c.HeaderText ?? c.Name;
-
-        // View menu item
-        var v = new ToolStripMenuItem(headerText)
-        {
-            CheckOnClick = true,
-            Checked = c.Visible,
-            Tag = c.Name
-        };
-        v.Click += (s, e) =>
-        {
-            var name = (string)((ToolStripMenuItem)s!).Tag!;
-            SetColumnVisible(name, ((ToolStripMenuItem)s!).Checked);
-        };
-        _viewColumnsMenu.DropDownItems.Add(v);
-        _viewColumnItems[c.Name] = v;
-
-        // Header context menu item
-        var h = new ToolStripMenuItem(headerText)
-        {
-            CheckOnClick = true,
-            Checked = c.Visible,
-            Tag = c.Name
-        };
-        h.Click += (s, e) =>
-        {
-            var name = (string)((ToolStripMenuItem)s!).Tag!;
-            SetColumnVisible(name, ((ToolStripMenuItem)s!).Checked);
-        };
-        _headerColumnsMenu.Items.Add(h);
-        _headerColumnItems[c.Name] = h;
-    }
-
-    // Separator + reset
-    _viewColumnsMenu.DropDownItems.Add(new ToolStripSeparator());
-    var resetView = new ToolStripMenuItem("Reset Columns");
-    resetView.Click += (s, e) => ResetColumnsToDefault();
-    _viewColumnsMenu.DropDownItems.Add(resetView);
-
-    _headerColumnsMenu.Items.Add(new ToolStripSeparator());
-    var resetHdr = new ToolStripMenuItem("Reset Columns");
-    resetHdr.Click += (s, e) => ResetColumnsToDefault();
-    _headerColumnsMenu.Items.Add(resetHdr);
-}
-
-BuildColumnMenus();
-
-// Right-click on column header opens the same checklist
-Grid.ColumnHeaderMouseClick += (s, e) =>
-{
-    if (e.Button == MouseButtons.Right)
-    {
-        var screen = Grid.PointToScreen(new Point(e.X, e.Y));
-        _headerColumnsMenu.Show(screen);
-    }
-};
-
-// Startup should look calm
-Grid.ClearSelection();
 
 var body = new Panel { Dock = DockStyle.Fill };
 body.Controls.Add(Grid);
@@ -1373,7 +1120,7 @@ public void ApplyFontSize(float size)
         public const int SW_RESTORE = 9;
 
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        public static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern bool SetForegroundWindow(IntPtr hWnd);
