@@ -1205,24 +1205,27 @@ private void TrySetFillWeight(string name, float weight)
 }
 
 public void ApplyFontSize(float size)
-        {
-            Font f = new Font(Font.FontFamily, size, Font.Style);
+{
+    // Use the user-selected font family + style from Program
+    using Font f = Program.MakeUiFont(size);
 
-            Grid.Font = f;
-            Grid.ColumnHeadersDefaultCellStyle.Font = f;
-            Grid.DefaultCellStyle.Font = f;
-            Status.Font = f;
+    // Apply broadly
+    this.Font = f;
+    Grid.Font = f;
+    Grid.DefaultCellStyle.Font = f;
+    Grid.ColumnHeadersDefaultCellStyle.Font = f;
+    Status.Font = f;
 
-            foreach (DataGridViewColumn col in Grid.Columns)
-                col.HeaderCell.Style.Font = f;
+    foreach (DataGridViewColumn col in Grid.Columns)
+        col.HeaderCell.Style.Font = f;
 
-            try
-            {
-                Grid.AutoResizeColumns();
-                Grid.AutoResizeRows();
-            }
-            catch { }
-        }
+    try
+    {
+        Grid.AutoResizeColumns();
+        Grid.AutoResizeRows();
+    }
+    catch { }
+}
 
         void ChooseFont()
         {
